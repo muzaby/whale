@@ -1,0 +1,83 @@
+/* Whale — design tokens */
+:root {
+  /* Accent — Ocean (default) */
+  --accent-h: 220;
+  --accent: oklch(0.58 0.13 var(--accent-h));
+  --accent-hover: oklch(0.52 0.14 var(--accent-h));
+  --accent-soft: oklch(0.96 0.03 var(--accent-h));
+  --accent-border: oklch(0.88 0.05 var(--accent-h));
+  --accent-fg: #ffffff;
+
+  /* Neutrals */
+  --bg: oklch(0.985 0.003 240);
+  --bg-subtle: oklch(0.97 0.004 240);
+  --panel: #ffffff;
+  --panel-raised: #ffffff;
+  --elev-bg: oklch(0.995 0.002 240);
+
+  --border: oklch(0.91 0.006 240);
+  --border-strong: oklch(0.84 0.008 240);
+  --divider: oklch(0.94 0.005 240);
+
+  --fg: oklch(0.22 0.015 250);
+  --fg-muted: oklch(0.45 0.012 250);
+  --fg-subtle: oklch(0.60 0.010 250);
+  --fg-faint: oklch(0.72 0.008 250);
+
+  /* Status */
+  --ok: oklch(0.62 0.13 155);
+  --warn: oklch(0.74 0.14 75);
+  --err: oklch(0.58 0.18 28);
+
+  /* Data viz */
+  --red: oklch(0.63 0.19 28);
+  --green: oklch(0.68 0.17 150);
+  --blue: oklch(0.60 0.17 250);
+  --luma: oklch(0.35 0.010 250);
+
+  /* Radius */
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r-md: 7px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 0 rgba(16,24,40,.04), 0 1px 2px rgba(16,24,40,.05);
+  --shadow-md: 0 2px 4px rgba(16,24,40,.05), 0 8px 20px -4px rgba(16,24,40,.08);
+  --shadow-lg: 0 10px 30px -8px rgba(16,24,40,.15), 0 4px 8px rgba(16,24,40,.06);
+
+  /* Type */
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Sizing */
+  --topbar-h: 48px;
+  --sidebar-w: 208px;
+  --sidebar-w-collapsed: 56px;
+
+  /* Density (overridable) */
+  --density-pad: 10px;
+}
+
+[data-accent="graphite"] {
+  --accent-h: 260;
+  --accent: oklch(0.36 0.02 260);
+  --accent-hover: oklch(0.28 0.02 260);
+  --accent-soft: oklch(0.95 0.005 260);
+  --accent-border: oklch(0.85 0.008 260);
+}
+[data-accent="amber"] {
+  --accent-h: 55;
+  --accent: oklch(0.70 0.14 55);
+  --accent-hover: oklch(0.64 0.15 55);
+  --accent-soft: oklch(0.97 0.04 55);
+  --accent-border: oklch(0.88 0.08 55);
+}
+[data-accent="teal"] {
+  --accent-h: 185;
+  --accent: oklch(0.60 0.11 185);
+  --accent-hover: oklch(0.54 0.12 185);
+  --accent-soft: oklch(0.96 0.03 185);
+  --accent-border: oklch(0.86 0.05 185);
+}
