@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { PageId, Tweaks, AccentColor, DensityMode } from './types'
+import type { MockUser } from './api'
+import { mockLogin, fetchMe } from './api'
 import { TopBar } from './components/TopBar'
 import { Home } from './components/Home'
 import { E2EPage } from './components/e2e/E2EPage'
@@ -11,6 +13,45 @@ const TWEAK_DEFAULTS: Tweaks = {
   accent: 'ocean',
   density: 'comfortable',
   monoMeta: true,
+}
+
+function LoginPanel({ onLogin }: { onLogin: (user: MockUser) => void }) {
+  const [email, setEmail] = useState('isp.engineer@whale.local')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const signIn = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await mockLogin(email)
+      localStorage.setItem('whale:token', data.token)
+      onLogin(data.user)
+    } catch {
+      setError('mock login failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="login-wrap">
+      <div className="login-card panel">
+        <div className="panel-header"><span className="title">Mock Sign-In</span></div>
+        <div className="panel-body">
+          <div className="field">
+            <label>Email</label>
+            <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <p className="login-help">isp.engineer@whale.local / review.engineer@whale.local</p>
+          {error && <div className="badge warn">{error}</div>}
+          <button className="btn primary login-btn" onClick={signIn} disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign in (Mock)'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function TweaksPanel({ tweaks, setTweak, onClose }: {
@@ -68,6 +109,15 @@ export default function App() {
   const [page, setPage] = useState<PageId>(() => (localStorage.getItem('whale:page') as PageId) ?? 'home')
   const [tweaksOn, setTweaksOn] = useState(false)
   const [tweaks, setTweaks] = useState<Tweaks>(TWEAK_DEFAULTS)
+  const [user, setUser] = useState<MockUser | null>(null)
+  const [checkingUser, setCheckingUser] = useState(true)
+
+  useEffect(() => {
+    fetchMe().then((me) => {
+      setUser(me)
+      setCheckingUser(false)
+    })
+  }, [])
 
   useEffect(() => { localStorage.setItem('whale:page', page) }, [page])
 
@@ -77,7 +127,6 @@ export default function App() {
     root.style.setProperty('--density-pad', tweaks.density === 'compact' ? '6px' : tweaks.density === 'spacious' ? '16px' : '10px')
   }, [tweaks])
 
-  // Edit-mode handshake for Claude Design
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       if (!e.data || typeof e.data !== 'object') return
@@ -92,6 +141,14 @@ export default function App() {
   const setTweak = <K extends keyof Tweaks>(k: K, v: Tweaks[K]) => {
     setTweaks(prev => ({ ...prev, [k]: v }))
     window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [k]: v } }, '*')
+  }
+
+  if (checkingUser) {
+    return <div className="loading">checking session…</div>
+  }
+
+  if (!user) {
+    return <LoginPanel onLogin={setUser} />
   }
 
   const crumb = page === 'e2e' ? (
