@@ -1,0 +1,482 @@
+openapi: 3.1.0
+info:
+  title: Whale Image API
+  version: 0.1.0
+  summary: Image catalog endpoints for the Whale image-tuning studio.
+  description: |
+    Backed by AWS S3 (single public bucket; objects keyed by SHA-256 digest of
+    the original RAW). AWS Lambda processes uploads to produce thumbnail JPG,
+    preview JPG, and (Phase 2) preview P010 — all hosted in the same bucket.
+
+    This document covers `GET /api/images` only. Upload (`POST`) and processing
+    status endpoints are deferred to subsequent design rounds.
+
+    ## Conventions
+    - All timestamps are ISO 8601 UTC with millisecond precision.
+    - Authentication: `Authorization: Bearer <jwt>` (required on every request).
+    - Auto-scoping: list endpoints are scoped to the authenticated user's
+      `uploader_id`. Cross-user listing requires an admin role and may yield
+      `403`.
+    - All listed image variants live in the same public bucket. URLs are
+      stable for the object's lifetime; once `expires_at` passes, they 404.
+  contact:
+    name: Whale Backend Team
+
+servers:
+  - url: https://api.whale.example.com
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: images
+    description: Image catalog operations.
+
+paths:
+  /api/images:
+    get:
+      tags: [images]
+      operationId: listImages
+      summary: List images uploaded by the authenticated user.
+      description: |
+        Returns the authenticated user's uploaded images, paginated.
+
+        ### Pagination
+        Offset-based via `offset` and `limit`. Response includes:
+        - `total` — live count of images visible to the caller at query time
+        - `has_more` — convenience flag (`offset + data.length < total`)
+
+        Stable across pages for single-user scope: only the caller's own
+        writes affect their list. Multi-tab edge cases (uploading in one tab
+        while paginating in another) are intentionally not handled at the
+        protocol level.
+
+        ### Filtering
+        - `kind=ref|e2e` — convenience filter mapped server-side to
+          `parent_id IS NULL` / `IS NOT NULL`.
+        - `parent_id=<id>` — return only direct E2E outputs of a specific
+          reference image (used for the Library "Compare in E2E" entry point).
+
+        ### Sorting
+        Only `created_at:desc` is currently supported. Reserved for future
+        extension.
+      parameters:
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Limit"
+        - name: kind
+          in: query
+          description: |
+            Filter by image kind.
+            - `ref` — reference image (`parent_id IS NULL`)
+            - `e2e` — E2E pipeline output (`parent_id IS NOT NULL`)
+          required: false
+          schema:
+            type: string
+            enum: [ref, e2e]
+        - name: parent_id
+          in: query
+          description: |
+            Return only direct E2E outputs whose parent equals this id.
+            Mutually compatible with `kind=e2e`; redundant with `kind=ref`.
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["created_at:desc"]
+            default: "created_at:desc"
+      responses:
+        "200":
+          description: Paginated image list.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "private, max-age=0, must-revalidate"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageListResponse"
+              examples:
+                first_page:
+                  summary: First page of a reference image listing.
+                  value:
+                    data:
+                      - image_id: 123
+                        name: night_0042.dng
+                        format: dng
+                        width: 6000
+                        height: 4000
+                        size: 14000000
+                        raw_url: https://s3.amazonaws.com/whale/2026/05/abc1234.dng
+                        preview_jpg_url: https://s3.amazonaws.com/whale/2026/05/abc1234.jpg
+                        preview_p010_url: null
+                        thumbnail_url: https://s3.amazonaws.com/whale/2026/05/abc1234.thumb.jpg
+                        created_at: "2026-05-06T17:00:00.000Z"
+                        expires_at: "2027-05-06T17:00:00.000Z"
+                        uploader_id: 7
+                        parent_id: null
+                        result_ids: [124, 125]
+                      - image_id: 124
+                        name: night_0042_sim-r7.jpg
+                        format: jpg
+                        width: 1920
+                        height: 1080
+                        size: 312000
+                        raw_url: https://s3.amazonaws.com/whale/2026/05/def5678.jpg
+                        preview_jpg_url: https://s3.amazonaws.com/whale/2026/05/def5678.preview.jpg
+                        preview_p010_url: null
+                        thumbnail_url: https://s3.amazonaws.com/whale/2026/05/def5678.thumb.jpg
+                        created_at: "2026-05-06T17:30:00.000Z"
+                        expires_at: "2027-05-06T17:30:00.000Z"
+                        uploader_id: 7
+                        parent_id: 123
+                        result_ids: []
+                    offset: 0
+                    limit: 50
+                    total: 1284
+                    has_more: true
+                empty:
+                  summary: User has no images.
+                  value:
+                    data: []
+                    offset: 0
+                    limit: 50
+                    total: 0
+                    has_more: false
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Offset:
+      name: offset
+      in: query
+      description: Number of items to skip from the beginning of the result set.
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        default: 0
+    Limit:
+      name: limit
+      in: query
+      description: Maximum number of items to return per page.
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 200
+        default: 50
+
+  schemas:
+    Image:
+      type: object
+      required:
+        - image_id
+        - name
+        - format
+        - width
+        - height
+        - size
+        - raw_url
+        - preview_jpg_url
+        - preview_p010_url
+        - thumbnail_url
+        - created_at
+        - expires_at
+        - uploader_id
+        - parent_id
+        - result_ids
+      properties:
+        image_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Server-assigned unique identifier.
+          example: 123
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Original filename as uploaded by the user.
+          example: night_0042.dng
+        format:
+          type: string
+          description: |
+            File format determined at upload time. The set may grow over time;
+            consumers should treat unknown values as opaque rather than failing.
+          enum: [raw, dng, cr3, raf, tif, p010, jpg, png]
+          example: dng
+        width:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Pixel width of the original.
+          example: 6000
+        height:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Pixel height of the original.
+          example: 4000
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Size of the original RAW upload, in bytes.
+          example: 14000000
+        raw_url:
+          type: string
+          format: uri
+          description: Public URL to the original RAW object.
+          example: https://s3.amazonaws.com/whale/2026/05/abc1234.dng
+        preview_jpg_url:
+          type: string
+          format: uri
+          description: |
+            12 MP downscaled JPG. Browser-renderable. Always present once
+            Lambda processing completes.
+          example: https://s3.amazonaws.com/whale/2026/05/abc1234.jpg
+        preview_p010_url:
+          type: [string, "null"]
+          format: uri
+          description: |
+            12 MP downscaled P010 (10-bit YUV 4:2:0). Phase 2 / feature-flag
+            dependent. `null` until the WebGL rendering pipeline is enabled
+            on the frontend.
+          example: null
+        thumbnail_url:
+          type: string
+          format: uri
+          description: Small JPG thumbnail used in Library grid views.
+          example: https://s3.amazonaws.com/whale/2026/05/abc1234.thumb.jpg
+        created_at:
+          type: string
+          format: date-time
+          description: Upload timestamp.
+          example: "2026-05-06T17:00:00.000Z"
+        expires_at:
+          type: string
+          format: date-time
+          description: |
+            Display-only metadata for the Library tab.
+            Backed by S3 lifecycle; once expired, image URLs return 404.
+
+            > **TODO**: align with `IMAGE_TTL` single source of truth across
+            > backend code, DB column, and S3 lifecycle rule.
+          example: "2027-05-06T17:00:00.000Z"
+        uploader_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: User ID of the uploader/creator.
+          example: 7
+        parent_id:
+          type: [integer, "null"]
+          format: int64
+          minimum: 1
+          description: |
+            For E2E (simulation) outputs, the ID of the source reference image.
+            `null` for reference images.
+          example: null
+        result_ids:
+          type: array
+          description: |
+            For reference images, IDs of E2E outputs derived from this image.
+            Computed by the backend at query time
+            (`array_agg(id) WHERE parent_id = self.image_id`).
+            Empty array for E2E (simulation) images.
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+          example: [124, 125]
+
+    ImageListResponse:
+      type: object
+      required: [data, offset, limit, total, has_more]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Image"
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Echo of the request `offset`.
+          example: 0
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Echo of the effective `limit`.
+          example: 50
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Live total count of images visible to the authenticated caller
+            at the time of this response. Used by the Library tab for the
+            "N of M items" indicator.
+          example: 1284
+        has_more:
+          type: boolean
+          description: True if more pages exist after this one.
+          example: true
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: |
+                Machine-readable error identifier (UPPER_SNAKE_CASE).
+                Stable contract — clients may switch on this value.
+              example: INVALID_PARAMS
+            message:
+              type: string
+              description: Human-readable explanation (English).
+              example: limit must be between 1 and 200
+            field:
+              type: string
+              description: |
+                Offending parameter name, when the error originates from a
+                specific request field.
+              example: limit
+            request_id:
+              type: string
+              description: |
+                Server-assigned trace identifier. Include in bug reports for
+                log correlation.
+              example: req_2k3lm4n5
+
+  responses:
+    BadRequest:
+      description: |
+        Invalid query parameters. Possible causes: `offset` negative,
+        `limit` outside `[1, 200]`, unsupported `sort` value, malformed
+        `parent_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INVALID_PARAMS
+              message: limit must be between 1 and 200
+              field: limit
+              request_id: req_2k3lm4n5
+
+    Unauthorized:
+      description: Missing or invalid authentication token.
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+            example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UNAUTHENTICATED
+              message: Authentication required
+              request_id: req_3l4m5n6o
+
+    Forbidden:
+      description: |
+        Authenticated but lacks permission for the requested operation
+        (e.g. attempting to list another user's images without admin role).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: FORBIDDEN
+              message: Cross-user image listing requires admin role
+              request_id: req_4m5n6o7p
+
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            description: Seconds before the client may retry.
+            example: 30
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: RATE_LIMITED
+              message: Too many requests
+              request_id: req_5n6o7p8q
+
+    InternalServerError:
+      description: Unexpected backend error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: INTERNAL
+              message: Internal server error
+              request_id: req_6o7p8q9r
+
+    ServiceUnavailable:
+      description: |
+        Transient unavailability of an upstream dependency (DB, S3).
+        Retryable with backoff.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            example: 5
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: UNAVAILABLE
+              message: Backend temporarily unavailable
+              request_id: req_7p8q9r0s
