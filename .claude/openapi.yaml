@@ -47,7 +47,8 @@ paths:
         ### Pagination
         Offset-based via `offset` and `limit`. Response includes:
         - `total` — live count of images visible to the caller at query time
-        - `has_more` — convenience flag (`offset + data.length < total`)
+
+        Clients derive "has more" as `offset + data.length < total`.
 
         Stable across pages for single-user scope: only the caller's own
         writes affect their list. Multi-tab edge cases (uploading in one tab
@@ -122,9 +123,8 @@ paths:
                         thumbnail_url: https://s3.amazonaws.com/whale/2026/05/abc1234.thumb.jpg
                         created_at: "2026-05-06T17:00:00.000Z"
                         expires_at: "2027-05-06T17:00:00.000Z"
-                        uploader_id: 7
+                        uploader_id: jiwon.k@whale.example.com
                         parent_id: null
-                        result_ids: [124, 125]
                       - image_id: 124
                         name: night_0042_sim-r7.jpg
                         format: jpg
@@ -137,13 +137,11 @@ paths:
                         thumbnail_url: https://s3.amazonaws.com/whale/2026/05/def5678.thumb.jpg
                         created_at: "2026-05-06T17:30:00.000Z"
                         expires_at: "2027-05-06T17:30:00.000Z"
-                        uploader_id: 7
+                        uploader_id: jiwon.k@whale.example.com
                         parent_id: 123
-                        result_ids: []
                     offset: 0
                     limit: 50
                     total: 1284
-                    has_more: true
                 empty:
                   summary: User has no images.
                   value:
@@ -151,7 +149,6 @@ paths:
                     offset: 0
                     limit: 50
                     total: 0
-                    has_more: false
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -213,7 +210,6 @@ components:
         - expires_at
         - uploader_id
         - parent_id
-        - result_ids
       properties:
         image_id:
           type: integer
@@ -293,11 +289,13 @@ components:
             > backend code, DB column, and S3 lifecycle rule.
           example: "2027-05-06T17:00:00.000Z"
         uploader_id:
-          type: integer
-          format: int64
-          minimum: 1
-          description: User ID of the uploader/creator.
-          example: 7
+          type: string
+          format: email
+          maxLength: 254
+          description: |
+            Email address of the uploader/creator. Used as the canonical user
+            identifier across the system. Validation follows RFC 5321 length cap.
+          example: jiwon.k@whale.example.com
         parent_id:
           type: [integer, "null"]
           format: int64
@@ -306,22 +304,10 @@ components:
             For E2E (simulation) outputs, the ID of the source reference image.
             `null` for reference images.
           example: null
-        result_ids:
-          type: array
-          description: |
-            For reference images, IDs of E2E outputs derived from this image.
-            Computed by the backend at query time
-            (`array_agg(id) WHERE parent_id = self.image_id`).
-            Empty array for E2E (simulation) images.
-          items:
-            type: integer
-            format: int64
-            minimum: 1
-          example: [124, 125]
 
     ImageListResponse:
       type: object
-      required: [data, offset, limit, total, has_more]
+      required: [data, offset, limit, total]
       properties:
         data:
           type: array
@@ -348,10 +334,6 @@ components:
             at the time of this response. Used by the Library tab for the
             "N of M items" indicator.
           example: 1284
-        has_more:
-          type: boolean
-          description: True if more pages exist after this one.
-          example: true
 
     Error:
       type: object
